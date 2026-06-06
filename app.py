@@ -36,31 +36,71 @@ def train_model(df):
 
     ml_df = df.copy()
 
+    TARGET = "Survived"
+
+    # Drop columns that don't help prediction
+    cols_to_drop = ["Name", "Ticket", "Cabin"]
+
+    existing_cols = [
+        col for col in cols_to_drop
+        if col in ml_df.columns
+    ]
+
+    ml_df = ml_df.drop(
+        columns=existing_cols
+    )
+
     encoders = {}
 
-    for col in ml_df.columns:
+    # Numeric columns
+    numeric_cols = [
+        "PassengerId",
+        "Pclass",
+        "Age",
+        "SibSp",
+        "Parch",
+        "Fare"
+    ]
 
-        if ml_df[col].dtype == "object":
+    for col in numeric_cols:
 
-            ml_df[col] = ml_df[col].fillna("Unknown")
+        if col in ml_df.columns:
 
-            le = LabelEncoder()
-
-            ml_df[col] = le.fit_transform(
-                ml_df[col].astype(str)
+            ml_df[col] = pd.to_numeric(
+                ml_df[col],
+                errors="coerce"
             )
-
-            encoders[col] = le
-
-        else:
 
             ml_df[col] = ml_df[col].fillna(
                 ml_df[col].median()
             )
 
-    TARGET = "Survived"
+    # Categorical columns
+    categorical_cols = [
+        "Sex",
+        "Embarked"
+    ]
+
+    for col in categorical_cols:
+
+        if col in ml_df.columns:
+
+            ml_df[col] = (
+                ml_df[col]
+                .fillna("Unknown")
+                .astype(str)
+            )
+
+            le = LabelEncoder()
+
+            ml_df[col] = le.fit_transform(
+                ml_df[col]
+            )
+
+            encoders[col] = le
 
     X = ml_df.drop(columns=[TARGET])
+
     y = ml_df[TARGET]
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -77,10 +117,18 @@ def train_model(df):
 
     model.fit(X_train, y_train)
 
-    accuracy = model.score(X_test, y_test)
+    accuracy = model.score(
+        X_test,
+        y_test
+    )
 
-    return model, X, accuracy, encoders, ml_df
-
+    return (
+        model,
+        X,
+        accuracy,
+        encoders,
+        ml_df
+    )
 model, X, accuracy, encoders, ml_df = train_model(df)
 
 # =====================================
@@ -253,8 +301,11 @@ elif page == "Prediction":
             else:
 
                 default_value = float(
-                    df[col].median()
-                )
+                        pd.to_numeric(
+                            df[col],
+                            errors="coerce"
+                        ).median()
+                    )
 
                 user_input[col] = st.number_input(
                     col,
