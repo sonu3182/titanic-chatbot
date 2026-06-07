@@ -1,25 +1,27 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 from groq import Groq
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 
-# =====================================
+# ====================================================
 # PAGE CONFIG
-# =====================================
+# ====================================================
 
 st.set_page_config(
-    page_title="Titanic Analytics & Prediction",
+    page_title="Titanic Analytics + Prediction",
     layout="wide"
 )
 
 st.title("🚢 Titanic Analytics + ML Chatbot")
 
-# =====================================
+# ====================================================
 # LOAD DATA
-# =====================================
+# ====================================================
 
 @st.cache_data
 def load_data():
@@ -27,18 +29,17 @@ def load_data():
 
 df = load_data()
 
-# =====================================
+# ====================================================
 # TRAIN MODEL
-# =====================================
+# ====================================================
 
 @st.cache_resource
 def train_model(df):
 
     ml_df = df.copy()
 
-    TARGET = "Survived"
+    target = "Survived"
 
-    # Drop columns that don't help prediction
     cols_to_drop = ["Name", "Ticket", "Cabin"]
 
     existing_cols = [
@@ -52,7 +53,6 @@ def train_model(df):
 
     encoders = {}
 
-    # Numeric columns
     numeric_cols = [
         "PassengerId",
         "Pclass",
@@ -75,7 +75,6 @@ def train_model(df):
                 ml_df[col].median()
             )
 
-    # Categorical columns
     categorical_cols = [
         "Sex",
         "Embarked"
@@ -99,9 +98,8 @@ def train_model(df):
 
             encoders[col] = le
 
-    X = ml_df.drop(columns=[TARGET])
-
-    y = ml_df[TARGET]
+    X = ml_df.drop(columns=[target])
+    y = ml_df[target]
 
     X_train, X_test, y_train, y_test = train_test_split(
         X,
@@ -122,45 +120,59 @@ def train_model(df):
         y_test
     )
 
-    return (
-        model,
-        X,
-        accuracy,
-        encoders,
-        ml_df
-    )
-model, X, accuracy, encoders, ml_df = train_model(df)
+    return model, X, accuracy, encoders
 
-# =====================================
+model, X, accuracy, encoders = train_model(df)
+
+# ====================================================
 # GROQ CLIENT
-# =====================================
+# ====================================================
 
 client = Groq(
-    api_key=st.secrets['key']
+    api_key=st.secrets["key"]
 )
 
-# =====================================
+# ====================================================
 # CHATBOT FUNCTION
-# =====================================
+# ====================================================
 
 def ask_data(question):
 
     q = question.lower()
 
+    # ------------------------------
+    # Accuracy
+    # ------------------------------
+
     if "accuracy" in q:
         return f"Model Accuracy = {accuracy:.2f}"
+
+    # ------------------------------
+    # Feature Importance Graph
+    # ------------------------------
 
     if "feature importance" in q:
 
         importance = pd.DataFrame({
             "Feature": X.columns,
             "Importance": model.feature_importances_
-        })
-
-        return importance.sort_values(
+        }).sort_values(
             "Importance",
             ascending=False
         )
+
+        fig = px.bar(
+            importance,
+            x="Feature",
+            y="Importance",
+            title="Feature Importance"
+        )
+
+        return fig
+
+    # ------------------------------
+    # Predict All Records
+    # ------------------------------
 
     if "predict all" in q:
 
@@ -170,29 +182,54 @@ def ask_data(question):
             "Prediction": preds
         })
 
-        return result.head(20)
+        return result
+
+    # ------------------------------
+    # LLM Prompt
+    # ------------------------------
 
     prompt = f"""
-You are an Expert Data Analyst.
+You are an expert Python Data Analyst.
 
-Dataset Columns:
+Dataset columns:
 {list(df.columns)}
 
-Dataset Shape:
-{df.shape}
+Dataframe name: df
 
-Target Column:
-Survived
-
-Generate ONLY executable Python code.
+Machine Learning Features:
+{list(X.columns)}
 
 Rules:
-1. DataFrame name is df
-2. ML Features dataframe name is X
-3. ML Model name is model
-4. Store final answer in variable named result
-5. No explanation
-6. Return only code
+
+1. Return ONLY executable Python code.
+2. Use dataframe name df.
+3. Use model name model.
+4. Use plotly.express as px for charts.
+5. Store final output in variable result.
+6. No explanation.
+7. No markdown.
+8. If chart requested return Plotly figure.
+
+Examples:
+
+Histogram:
+result = px.histogram(df,x='Age')
+
+Bar Chart:
+result = px.bar(df,x='Sex',y='Fare')
+
+Scatter:
+result = px.scatter(df,x='Age',y='Fare',color='Survived')
+
+Box:
+result = px.box(df,x='Pclass',y='Fare')
+
+Pie:
+result = px.pie(df,names='Sex')
+
+Correlation:
+Correlation=df.select_dtypes(include='number').corr()
+result=px.imshow(corr,text_auto=True)
 
 Question:
 {question}
@@ -223,29 +260,31 @@ Question:
             "df": df,
             "pd": pd,
             "np": np,
-            "X": X,
-            "model": model
+            "px": px,
+            "model": model,
+            "X": X
         }
 
         exec(code, {}, local_vars)
 
         return local_vars.get(
             "result",
-            "No result returned"
+            "No result returned."
         )
 
     except Exception as e:
 
         return f"""
-Error: {e}
+Error:
+{e}
 
 Generated Code:
 {code}
 """
 
-# =====================================
+# ====================================================
 # SIDEBAR
-# =====================================
+# ====================================================
 
 page = st.sidebar.radio(
     "Choose Option",
@@ -256,9 +295,9 @@ page = st.sidebar.radio(
     ]
 )
 
-# =====================================
+# ====================================================
 # DATASET PAGE
-# =====================================
+# ====================================================
 
 if page == "Dataset":
 
@@ -271,13 +310,15 @@ if page == "Dataset":
         f"{accuracy:.2f}"
     )
 
-# =====================================
+# ====================================================
 # PREDICTION PAGE
-# =====================================
+# ====================================================
 
 elif page == "Prediction":
 
-    st.subheader("Passenger Survival Prediction")
+    st.subheader(
+        "Passenger Survival Prediction"
+    )
 
     user_input = {}
 
@@ -300,16 +341,16 @@ elif page == "Prediction":
 
             else:
 
-                default_value = float(
-                        pd.to_numeric(
-                            df[col],
-                            errors="coerce"
-                        ).median()
-                    )
+                median_value = float(
+                    pd.to_numeric(
+                        df[col],
+                        errors="coerce"
+                    ).median()
+                )
 
                 user_input[col] = st.number_input(
                     col,
-                    value=default_value
+                    value=median_value
                 )
 
     if st.button("Predict Survival"):
@@ -337,26 +378,28 @@ elif page == "Prediction":
         if prediction == 1:
 
             st.success(
-                f"Passenger SURVIVED ✅"
+                "Passenger SURVIVED ✅"
             )
 
         else:
 
             st.error(
-                f"Passenger DID NOT SURVIVE ❌"
+                "Passenger DID NOT SURVIVE ❌"
             )
 
         st.write(
             f"Survival Probability: {probability[1]:.2%}"
         )
 
-# =====================================
+# ====================================================
 # CHATBOT PAGE
-# =====================================
+# ====================================================
 
 elif page == "Analytics Chatbot":
 
-    st.subheader("Ask Questions About Data")
+    st.subheader(
+        "Ask Questions About Titanic Data"
+    )
 
     question = st.text_input(
         "Enter your question"
@@ -370,8 +413,28 @@ elif page == "Analytics Chatbot":
 
         if isinstance(
             answer,
-            (pd.DataFrame, pd.Series)
+            pd.DataFrame
         ):
+
             st.dataframe(answer)
+
+        elif isinstance(
+            answer,
+            pd.Series
+        ):
+
+            st.dataframe(answer)
+
+        elif isinstance(
+            answer,
+            go.Figure
+        ):
+
+            st.plotly_chart(
+                answer,
+                use_container_width=True
+            )
+
         else:
+
             st.write(answer)
